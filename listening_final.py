@@ -33,7 +33,7 @@ def establishStarCamSocket(StarCam_IP):
 
 def getStarCamData(clientSock_with_StarCam):
     # receive StarCamera telemetry data and camera settings (number of expected bytes is hard-coded in)
-    (StarCam_data, _) = clientSock_with_StarCam.recvfrom(204)   
+    (StarCam_data, _) = clientSock_with_StarCam.recvfrom(208)   
     # write data to backup txt file
     # backupStarCamData(StarCam_data)
     print("Received Star Camera data.")

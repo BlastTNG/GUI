@@ -360,7 +360,7 @@ class GUI(QDialog):
         # leaves auto-focusing)
         self.auto_focus_group.setEnabled(True)
         auto_focus_layout = QFormLayout()
-        auto_focus_layout.setSpacing(3)
+        auto_focus_layout.setSpacing(2)
         # disable auto-focus subgroup if auto focus box is unchecked
         self.auto_focus_box.stateChanged.connect(self.toggleAutoFocusBox)
         self.prev_auto_focus = 1
@@ -372,11 +372,17 @@ class GUI(QDialog):
         self.focus_step.setMinimum(1)
         self.focus_step.setMaximum(200)
         self.prev_focus_step = 0
+        self.photos_per_focus = QSpinBox()
+        self.photos_per_focus.setMinimum(2)
+        self.photos_per_focus.setMaximum(10)
+        self.photos_per_focus.setValue(3)
+        self.prev_photos_per_focus = 3
         auto_focus_layout.setContentsMargins(3, 3, 3, 3)
         auto_focus_layout.addRow(self.auto_focus_box)
         auto_focus_layout.addRow(QLabel("Starting position for auto-focusing range:           "), self.start_focus_pos)
         auto_focus_layout.addRow(QLabel("Ending position for auto-focusing range:"), self.end_focus_pos)
         auto_focus_layout.addRow(QLabel("Granularity of auto-focus checker:"), self.focus_step)
+        auto_focus_layout.addRow(QLabel("Number of photos to take per focus:"), self.photos_per_focus)
         self.auto_focus_group.setLayout(auto_focus_layout)
         focus_slider_vbox.addWidget(self.auto_focus_group)
         # add these focus layouts to the main commanding layout
@@ -539,7 +545,8 @@ class GUI(QDialog):
                "to manual focusing mode, where the user can make changes and send them with the slider. If the camera has been running " \
                "before the user connects, it will have already performed auto-focusing, so the GUI will update upon reception of the first batch " \
                "of telemetry to reflect this. To re-enter auto-focusing, check the box and specify the " \
-               "range of focus positions you would like to check with the start and stop fields. Specify the step size as well. " \
+               "range of focus positions you would like to check with the start and stop fields. Specify the step size and number of pictures " \
+               "to take at each focus position as well. Increasing the number of photos will increase how long the auto-focusing process takes. " \
                "If desired, the default values may be left as is. To change the " \
                "aperture to one of the camera's f-numbers, select one from the drop-down menu. 2.8 is " \
                "maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If you would " \
@@ -772,7 +779,7 @@ class GUI(QDialog):
     """ Display the telemetry and camera settings on the GUI. """
     def displayTelemetryAndCameraSettings(self, data):
         # unpack the telemetry and camera settings
-        unpacked_data = struct.unpack_from("d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii if ii i", data)
+        unpacked_data = struct.unpack_from("d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii fi ii", data)
 
         # telemetry data parsing (always update, no matter what, since user is not interacting 
         # with this panel)
@@ -820,8 +827,8 @@ class GUI(QDialog):
         # display new focus information on commanding window
         self.focus_slider.setMinimum(unpacked_data[17])
         self.focus_slider.setMaximum(unpacked_data[18])
-        self.start_focus_pos.setRange(unpacked_data[17], unpacked_data[18])
-        self.end_focus_pos.setRange(unpacked_data[17], unpacked_data[18])
+        self.start_focus_pos.setRange(unpacked_data[17], unpacked_data[18] - 20)
+        self.end_focus_pos.setRange(unpacked_data[17], unpacked_data[18] - 20)
 
         if (self.focus_slider.previous_value != unpacked_data[13]):
             self.focus_slider.setValue(unpacked_data[13])
@@ -845,6 +852,10 @@ class GUI(QDialog):
         if (self.prev_focus_step != unpacked_data[25]):
             self.prev_focus_step = unpacked_data[25]
             self.focus_step.setValue(unpacked_data[25])
+
+        if (self.prev_photos_per_focus != unpacked_data[26]):
+            self.prev_photos_per_focus = unpacked_data[26]
+            self.photos_per_focus.setValue(unpacked_data[26])
 
         if (self.infinity_focus_box_prev_value != unpacked_data[14]):
             self.infinity_focus_box_prev_value = unpacked_data[14]
@@ -870,58 +881,58 @@ class GUI(QDialog):
             self.exposure_box_prev_value = unpacked_data[20]
 
         # display new blob parameter information on commanding window
-        if (self.prev_spike_limit != unpacked_data[26]):
-            self.new_spike_limit.setText(str(unpacked_data[26]))
-            self.prev_spike_limit = unpacked_data[26]
+        if (self.prev_spike_limit != unpacked_data[27]):
+            self.new_spike_limit.setText(str(unpacked_data[27]))
+            self.prev_spike_limit = unpacked_data[27]
 
-        if (self.prev_dynamic_hot_pixels != unpacked_data[27]):
-            self.prev_dynamic_hot_pixels = unpacked_data[27]
-            if (unpacked_data[27] == 1):
+        if (self.prev_dynamic_hot_pixels != unpacked_data[28]):
+            self.prev_dynamic_hot_pixels = unpacked_data[28]
+            if (unpacked_data[28] == 1):
                 self.new_dynamic_hot_pixels.setCurrentText("On")
             else:
                 self.new_dynamic_hot_pixels.setCurrentText("Off")
 
-        if (self.prev_r_smooth != unpacked_data[28]):
-            self.new_r_smooth.setText(str(unpacked_data[28]))
-            self.prev_r_smooth = unpacked_data[28]
+        if (self.prev_r_smooth != unpacked_data[29]):
+            self.new_r_smooth.setText(str(unpacked_data[29]))
+            self.prev_r_smooth = unpacked_data[29]
 
-        if (self.prev_high_pass_filter != unpacked_data[29]):
-            self.prev_high_pass_filter = unpacked_data[29]
-            if (unpacked_data[29] == 1):
+        if (self.prev_high_pass_filter != unpacked_data[30]):
+            self.prev_high_pass_filter = unpacked_data[30]
+            if (unpacked_data[30] == 1):
                 self.new_high_pass_filter.setCurrentText("On")
             else:
                 self.new_high_pass_filter.setCurrentText("Off")
 
-        if (self.prev_r_high_pass_filter != unpacked_data[30]):
-            self.new_r_high_pass_filter.setText(str(unpacked_data[30]))
-            self.prev_r_high_pass_filter = unpacked_data[30]
+        if (self.prev_r_high_pass_filter != unpacked_data[31]):
+            self.new_r_high_pass_filter.setText(str(unpacked_data[31]))
+            self.prev_r_high_pass_filter = unpacked_data[31]
 
-        if (self.prev_centroid_value != unpacked_data[31]):
-            self.new_centroid_search_border.setText(str(unpacked_data[31]))
-            self.prev_centroid_value = unpacked_data[31]
+        if (self.prev_centroid_value != unpacked_data[32]):
+            self.new_centroid_search_border.setText(str(unpacked_data[32]))
+            self.prev_centroid_value = unpacked_data[32]
 
-        if (self.prev_filter_return_image != unpacked_data[32]):
-            self.prev_filter_return_image = unpacked_data[32]
-            if (unpacked_data[32] == 1):
+        if (self.prev_filter_return_image != unpacked_data[33]):
+            self.prev_filter_return_image = unpacked_data[33]
+            if (unpacked_data[33] == 1):
                 self.new_filter_return_image.setCurrentText("True")
             else:
                 self.new_filter_return_image.setCurrentText("False")
         
-        if (self.prev_n_sigma != unpacked_data[33]):
-            self.new_n_sigma.setText(str(unpacked_data[33]))
-            self.prev_n_sigma = unpacked_data[33]
+        if (self.prev_n_sigma != unpacked_data[34]):
+            self.new_n_sigma.setText(str(unpacked_data[34]))
+            self.prev_n_sigma = unpacked_data[34]
 
-        if (self.prev_unique_star_spacing != unpacked_data[34]):
-            self.new_unique_star_spacing.setText(str(unpacked_data[34]))
-            self.prev_unique_star_spacing = unpacked_data[34]
+        if (self.prev_unique_star_spacing != unpacked_data[35]):
+            self.new_unique_star_spacing.setText(str(unpacked_data[35]))
+            self.prev_unique_star_spacing = unpacked_data[35]
 
-        if (self.prev_makeHP != bool(unpacked_data[35])):
-            self.make_staticHP.setChecked(bool(unpacked_data[35]))
-            self.prev_makeHP = unpacked_data[35]
+        if (self.prev_makeHP != bool(unpacked_data[36])):
+            self.make_staticHP.setChecked(bool(unpacked_data[36]))
+            self.prev_makeHP = unpacked_data[36]
 
-        if (self.prev_useHP != bool(unpacked_data[36])):
-            self.use_staticHP.setChecked(bool(unpacked_data[36]))
-            self.prev_useHP = unpacked_data[36]
+        if (self.prev_useHP != bool(unpacked_data[37])):
+            self.use_staticHP.setChecked(bool(unpacked_data[37]))
+            self.prev_useHP = unpacked_data[37]
 
     """ Update StarCamera image data. """
     def updateImageData(self, image_bytes):
@@ -978,6 +989,11 @@ class GUI(QDialog):
         elif command_name == "focus_range":
             msg.setIcon(QMessageBox.Warning)
             msg.setText("Based on the start and stop focus positions you specified, the auto-focusing will only check one focus position.")
+        elif command_name == "auto-focusing":
+            msg.setIcon(QMessageBox.Warning)
+            msg.setText("The distance between your specified start position and end position for auto-focusing is not divisible by your step size. " \
+                        "The camera will increment by your step size until the difference between its current position and the end focus position is " \
+                        "less than your step size, in which case it will jump automatically to the end position.")
         msg.exec_()
 
     """ Package the commands when the 'Send Commands' button is clicked on the GUI. """
@@ -1022,6 +1038,10 @@ class GUI(QDialog):
             self.displayWarning("focus_range", 0)
 
         step_size = int(self.focus_step.value())
+        if not (isinstance((end_focus - start_focus)/step_size, int)):
+            self.displayWarning("auto-focusing", step_size)
+
+        photos_per_focus = int(self.photos_per_focus.value())
 
         infinity_focus_bool = self.infinity_focus_box.currentText()
         if infinity_focus_bool == "True":
@@ -1102,12 +1122,13 @@ class GUI(QDialog):
             star_spacing_value = -1
 
         # package commands to send to camera
-        cmds_for_camera = struct.pack('dddddfiiiiiiiiifffffffff', logodds, latitude, longitude, height, exposure, 
+        cmds_for_camera = struct.pack('dddddfiiiiiiiiiifffffffff', logodds, latitude, longitude, height, exposure, 
                                        set_focus_to_amount, auto_focus_bool, start_focus, end_focus, step_size, 
-                                       infinity_focus_bool, set_aperture_steps, max_aperture_bool, make_HP_bool, 
-                                       use_HP_bool, spike_limit_value, dynamic_hot_pixels_bool, r_smooth_value, 
-                                       high_pass_filter_bool, r_high_pass_filter_value, centroid_search_border_value, 
-                                       filter_return_image_bool, n_sigma_value, star_spacing_value)
+                                       photos_per_focus, infinity_focus_bool, set_aperture_steps, max_aperture_bool, 
+                                       make_HP_bool, use_HP_bool, spike_limit_value, dynamic_hot_pixels_bool, 
+                                       r_smooth_value, high_pass_filter_bool, r_high_pass_filter_value, 
+                                       centroid_search_border_value, filter_return_image_bool, n_sigma_value, 
+                                       star_spacing_value)
         # send these commands to things listening to the send_commands_signal
         self.send_commands_signal.emit(cmds_for_camera)
 
