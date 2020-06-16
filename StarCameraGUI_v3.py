@@ -195,7 +195,7 @@ class GUI(QDialog):
 
         # move window to position on user's computer screen and resize it
         self.move(100, 0)
-        self.setFixedSize(1800, 1000)
+        self.setFixedSize(1800, 900)
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
 
         # create the telemetry worker thread attached to the GUI window
@@ -295,7 +295,7 @@ class GUI(QDialog):
 
         # layout to house entry fields for each command
         cmd_layout = QFormLayout()
-        cmd_layout.setSpacing(3.25)
+        cmd_layout.setSpacing(2.5)
 
         # logodds parameter entry field
         self.logodds = QLineEdit()
@@ -476,8 +476,38 @@ class GUI(QDialog):
         self.topLeftGroupBox.setLayout(cmd_layout)
         self.topLeftGroupBox.setMinimumWidth(600) 
 
-        # create section for displaying StarCamera photos
+        # create section for displaying StarCamera photos (and add a tab for instructions)
         self.photoTab = QTabWidget()
+        instructions = QLabel(alignment = Qt.AlignTop)
+        instructions.setIndent(10)
+        text = "Enter your commands to control the Star Camera. The 'logodds' parameter controls how many false positives " \
+               "Astrometry allows (the lower the number, the more false positives allowed). We suggest keeping this " \
+               "parameter at the default value unless you are absolutely sure of changing it. For changing the exposure, " \
+               "only enter integer values between 1 millisecond and 1 second. The camera will adjust the exposure to a " \
+               "decimal value, which will be displayed, but only enter commands as integers. To change the focus to a " \
+               "certain count, specify the position on the 'Set focus to:' scrollbar. By default, the camera begins in auto-focusing " \
+               "mode to determine the optimal focus position given an observing session's particular conditions and then switches " \
+               "to manual focusing mode, where the user can make changes and send them with the slider. If the camera has been running " \
+               "before the user connects, it will have already performed auto-focusing, so the GUI will update upon reception of the first batch " \
+               "of telemetry to reflect this. To re-enter auto-focusing, check the box and specify the " \
+               "range of focus positions you would like to check with the start and stop fields. Specify the step size and number of pictures " \
+               "to take at each focus position as well. Increasing the number of photos will increase how long the auto-focusing process takes. " \
+               "If desired, the default values may be left as is. To change the " \
+               "aperture to one of the camera's f-numbers, select one from the drop-down menu. 2.8 is " \
+               "maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If you would " \
+               "like to set the focus to infinity or the aperture to maximum, select true in the drop-down " \
+               "menu(s). For changing the blob-finding parameters, enter the desired values in the proper " \
+               "entry field. If you are taking dark images and wish to re-make the static hot pixel mask, check " \
+               "the box, though this is not recommended (one has been made and tested previously). To turn this " \
+               "static hot pixel map on and off, check the 'use' button. These checkboxes will update to the current " \
+               "Star Camera settings on every iteration the telemetry is received from the camera. " \
+               "Once the commands you wish to send are entered, press the 'Send Commands' button. Left click on the " \
+               "graphics to export data and save as files." 
+        instructions.setFont(QFont("Helvetica", 9, QFont.Light))
+        instructions.setText(text)
+        instructions.setWordWrap(True)
+        self.photoTab.addTab(instructions, "&Instructions")
+
         # interpret image data as row-major instead of col-major
         pg.setConfigOptions(imageAxisOrder = "row-major")
         # create window with GraphicsView widget
@@ -524,19 +554,19 @@ class GUI(QDialog):
         # place for entering IP address of StarCamera computer (known)
         self.ip_input = QLineEdit()
         font = self.ip_input.font()
-        font.setPointSize(9)
+        font.setPointSize(12)
         self.ip_input.setFont(font)
         ip_layout = QHBoxLayout()
         ip_sublayout = QFormLayout()
         ip_label = QLabel()
-        ip_label.setFont(QFont('Helvetica', 9, QFont.DemiBold))
+        ip_label.setFont(QFont('Helvetica', 12, QFont.DemiBold))
         ip_label.setText("Enter the Star Camera IP address:")
         ip_sublayout.addRow(ip_label, self.ip_input)
         ip_layout.addLayout(ip_sublayout)
         self.ip_button = QPushButton("Start")
         self.ip_button.clicked.connect(self.startButtonClicked)
         self.ip_button.setDefault(True)
-        self.ip_button.setFont(QFont('Helvetica', 9, QFont.DemiBold))
+        self.ip_button.setFont(QFont('Helvetica', 12, QFont.DemiBold))
         self.ip_button.resize(100, 30)
         ip_layout.addWidget(self.ip_button)
 
@@ -544,37 +574,6 @@ class GUI(QDialog):
         topLayout.addWidget(colorLabel)
         topLayout.addWidget(self.colorComboBox)
         topLayout.addLayout(ip_layout)
-        # instructions for user operating the Star Camera GUI
-        instructions = QLabel()
-        text = "Enter your commands to control the Star Camera. Specify your latitude and longitude in their entry fields. " \
-               "To change the focus to a " \
-               "certain count, specify the position on the 'Set focus to:' scrollbar. By default, the camera begins in auto-focusing " \
-               "mode to determine the optimal focus position given an observing session's particular conditions and then switches " \
-               "to manual focusing mode, where the user can make changes and send them with the slider. If the camera has been running " \
-               "before the user connects, it will have already performed auto-focusing, so the GUI will update upon reception of the first batch " \
-               "of telemetry to reflect this. To re-enter auto-focusing, check the box and specify the " \
-               "range of focus positions you would like to check with the start and stop fields. Specify the step size and number of pictures " \
-               "to take at each focus position as well. Increasing the number of photos will increase how long the auto-focusing process takes. " \
-               "If desired, the default values may be left as is. To change the " \
-               "aperture to one of the camera's f-numbers, select one from the drop-down menu. 2.8 is " \
-               "maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If you would " \
-               "like to set the focus to infinity or the aperture to maximum, select true in the drop-down " \
-               "menu(s). For changing the blob-finding parameters, enter the desired values in the proper " \
-               "entry field. If you are taking dark images and wish to re-make the static hot pixel mask, check " \
-               "the box, though this is not recommended (one has been made and tested previously). To turn this " \
-               "static hot pixel map on and off, check the 'use' button. These checkboxes will update to the current " \
-               "Star Camera settings on every iteration the telemetry is received from the camera. " \
-               "The 'logodds' parameter controls how many false positives Astrometry generates (the lower the " \
-               "number, the more false positives allowed). We suggest keeping this parameter at the default value " \
-               "unless you are absolutely sure of changing it. For changing the exposure, only enter integer values " \
-               "between 1 millisecond and 1 second. The camera will adjust the exposure to a decimal value, which " \
-               "will be displayed, but only enter commands as integers. Once the commands you wish to send are entered, " \
-               "press the 'Send Commands' button. Left click on the graphics to export data and save as files." 
-        instructions.setFont(QFont("Helvetica", 8, QFont.Light))
-        instructions.setText(text)
-        instructions.setWordWrap(True)
-        # add these instructions to the top layout
-        topLayout.addWidget(instructions)
 
         # add main portions of GUI to the main GUI layout
         mainLayout = QGridLayout()
