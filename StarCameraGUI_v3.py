@@ -153,7 +153,9 @@ class CommandingThread(QThread):
         msg.setText("Commands sent to the Star Camera. \n\nNote: If a command to make a static " \
                     "hot pixel map was sent, the Star Camera will make a map and then automatically " \
                     "set the flag to 0 to avoid re-making the map. The box will not remain checked " \
-                    "in the Commands menu.")
+                    "in the Commands menu. \n\nNote: If you entered other lens adapter commands along " \
+                    "with re-performing auto-focus, they will be ignored to prevent driver issues " \
+                    "(e.g. aperture, exposure).")
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec_()
 
@@ -245,6 +247,7 @@ class GUI(QDialog):
 
         # label drop-down menu
         colorLabel = QLabel("&Color Scheme")
+        colorLabel.setToolTip("Change the color scheme")
         colorLabel.setBuddy(self.colorComboBox)
         # connect the user selection of options in these drop-down menus to the 
         # change style function below that alters the appearance of the GUI
@@ -257,20 +260,28 @@ class GUI(QDialog):
         # set up area for live-stream of data from StarCamera
         telemetry_layout = QFormLayout()
         self.time_box = QLabel()
+        self.time_box.setToolTip("The timestamp corresponding to the most recent image and Astrometry solution")
         telemetry_layout.addRow(QLabel("Time:"), self.time_box)
         self.ra_box = QLabel()
+        self.ra_box.setToolTip("Observed right ascension (degrees)")
         telemetry_layout.addRow(QLabel("RA [deg]:"), self.ra_box)
         self.dec_box = QLabel()
+        self.dec_box.setToolTip("Observed declination (degrees)")
         telemetry_layout.addRow(QLabel("DEC [deg]:"), self.dec_box)
         self.fr_box = QLabel()
+        self.fr_box.setToolTip("Field rotation (degrees)")
         telemetry_layout.addRow(QLabel("FR [deg]:"), self.fr_box)
         self.ir_box = QLabel()
+        self.ir_box.setToolTip("Image rotation (degrees)")
         telemetry_layout.addRow(QLabel("IR [deg]:"), self.ir_box)
         self.ps_box = QLabel()
+        self.ps_box.setToolTip("Pixel scale (arcseconds per pixel)")
         telemetry_layout.addRow(QLabel("PS [arcsec/px]:"), self.ps_box)
         self.az_box = QLabel()
+        self.az_box.setToolTip("Azimuth (degrees)")
         telemetry_layout.addRow(QLabel("AZ [deg]:"), self.az_box)
         self.alt_box = QLabel()
+        self.alt_box.setToolTip("Altitude (degrees)")
         telemetry_layout.addRow(QLabel("ALT [deg]:"), self.alt_box)
 
         # add progress bar to telemetry section for timing purposes
@@ -287,30 +298,36 @@ class GUI(QDialog):
         self.topLeftGroupBox = QGroupBox("&Commands")
 
         self.infinity_focus_box = QComboBox()
+        self.infinity_focus_box.setToolTip("Automatically set the focus to infinity")
         self.infinity_focus_box.addItems(["False", "True"])
         self.infinity_focus_box_prev_value = 0 
         self.max_aperture_box = QComboBox()
+        self.max_aperture_box.setToolTip("Automatically open the aperture fully")
         self.max_aperture_box.addItems(["True", "False"])
         self.max_aperture_box_prev_value = 1 
 
         # layout to house entry fields for each command
         cmd_layout = QFormLayout()
-        cmd_layout.setSpacing(2.5)
+        cmd_layout.setSpacing(2)
 
         # logodds parameter entry field
         self.logodds = QLineEdit()
+        self.logodds.setToolTip("Threshold for how stringent Astrometry is with false positives - higher is more")
         self.logodds.setText("1.00e+08")
         self.prev_logodds = float(self.logodds.text())
         cmd_layout.addRow(QLabel("Logodds parameter:"), self.logodds)
 
         # latitude and longitude entry fields
         self.latitude_box = QLineEdit()
+        self.latitude_box.setToolTip("Latitude (degrees)")
         self.latitude_box.setText("40.79243469238281")
         self.latitude_box_prev_value = float(self.latitude_box.text())
         self.longitude_box = QLineEdit()
+        self.longitude_box.setToolTip("Longitude (degrees)")
         self.longitude_box.setText("-73.68112182617188")
         self.longitude_box_prev_value = float(self.longitude_box.text())
         self.height_box = QLineEdit()
+        self.height_box.setToolTip("A GPS might give this as elevation or altitude")
         self.height_box.setText("57.77")
         self.height_box_prev_value = float(self.height_box.text())
 
@@ -320,6 +337,7 @@ class GUI(QDialog):
 
         # exposure entry field
         self.exposure_box = QLineEdit()
+        self.exposure_box.setToolTip("How the camera will take an image for")
         self.exposure_box.setMaxLength(9)
         self.exposure_box.setText("800")     # default exposure time is 800 msec
         self.exposure_box_prev_value = float(self.exposure_box.text())
@@ -327,15 +345,17 @@ class GUI(QDialog):
 
         # timeout for solving Astrometry
         self.timelimit = QSpinBox()
-        self.timelimit.setValue(30)          # seconds
-        self.prev_timelimit = 30
-        self.timelimit.setMinimum(10)        # can't time out immediately or we will never solve!
-        self.timelimit.setMaximum(120)       # also don't want to try to solve forever
-        cmd_layout.addRow(QLabel("Astrometry timeout in seconds:"), self.timelimit)
+        self.timelimit.setToolTip("How many cycles Astrometry will iterate\nthrough before timing out (if a solution is not found)")
+        self.timelimit.setValue(5)          # cycles
+        self.prev_timelimit = 5
+        self.timelimit.setMinimum(5)        # can't time out immediately or we will never solve!
+        self.timelimit.setMaximum(50)       # also don't want to try to solve forever
+        cmd_layout.addRow(QLabel("Astrometry timeout in cycles:"), self.timelimit)
 
         # create slider for focus
         self.current_focus = 0               # dummy current focus value for before camera settings are received
         self.focus_slider = Slider(tickPosition = QSlider.TicksAbove, orientation = Qt.Horizontal)
+        self.focus_slider.setToolTip("Change the focus manually")
         self.focus_slider.setValue(self.current_focus)
         # layouts for focus tools
         focus_slider_vbox = QVBoxLayout()
@@ -358,10 +378,12 @@ class GUI(QDialog):
         focus_slider_hbox.addWidget(label_minimum, Qt.AlignLeft)
         focus_slider_hbox.addWidget(self.focus_slider_label, Qt.AlignCenter)
         focus_slider_hbox.addWidget(label_maximum, Qt.AlignRight)
+
         # sublayout for auto-focusing
         self.auto_focus_box = QCheckBox("&Automatic &Focusing:")
         # default is to begin in automatic focusing mode
         self.auto_focus_box.setChecked(True)
+        self.auto_focus_box.setToolTip("Re-enter auto-focusing or turn it off (and maintain current position)")
         self.auto_focus_group = QGroupBox()
         self.auto_focus_group.setContentsMargins(0, 0, 0, 0)
         # since we begin in auto-focusing by default, make sure this area is enabled (will disable it when program
@@ -373,14 +395,18 @@ class GUI(QDialog):
         self.auto_focus_box.stateChanged.connect(self.toggleAutoFocusBox)
         self.prev_auto_focus = 1
         self.start_focus_pos = QSpinBox()
+        self.start_focus_pos.setToolTip("Where to start the auto-focusing search")
         self.prev_start_focus = 0
         self.end_focus_pos = QSpinBox()
+        self.end_focus_pos.setToolTip("Where to end the auto-focusing search")
         self.prev_end_focus = 0
         self.focus_step = QSpinBox()
+        self.focus_step.setToolTip("How many focus positions to step by and check")
         self.focus_step.setMinimum(1)
         self.focus_step.setMaximum(200)
         self.prev_focus_step = 0
         self.photos_per_focus = QSpinBox()
+        self.photos_per_focus.setToolTip("How many pictures to take at each focus position")
         self.photos_per_focus.setMinimum(2)
         self.photos_per_focus.setMaximum(10)
         self.photos_per_focus.setValue(3)
@@ -393,6 +419,7 @@ class GUI(QDialog):
         auto_focus_layout.addRow(QLabel("Number of photos to take per focus:"), self.photos_per_focus)
         self.auto_focus_group.setLayout(auto_focus_layout)
         focus_slider_vbox.addWidget(self.auto_focus_group)
+
         # add these focus layouts to the main commanding layout
         cmd_layout.addRow(QLabel("Change focus:"))
         cmd_layout.addRow(focus_slider_vbox)
@@ -401,6 +428,7 @@ class GUI(QDialog):
         # create drop-down menu for aperture (if you can implement a slider with non-uniform spacing, 
         # do that here)
         self.aperture_menu = ApertureMenu()
+        self.aperture_menu.setToolTip("Switch between the different f-numbers of the camera")
         self.aperture_menu.addItems(aperture_range)
         self.aperture_menu.setPrevValue()
         cmd_layout.addRow(QLabel("Set aperture to:"), self.aperture_menu)
@@ -409,11 +437,13 @@ class GUI(QDialog):
         # create entry fields for each of the blob parameters
         hp_layout = QHBoxLayout()
         self.make_staticHP = QCheckBox("Make new static hot pixel map")
+        self.make_staticHP.setToolTip("Re-make the static hot pixel map - this will overwrite the current one")
         # default is not to make a new static hot pixel map (presumed that one has already
         # been made and tested)
         self.make_staticHP.setChecked(False) 
         self.prev_makeHP = 0
         self.use_staticHP = QCheckBox("Use static hot pixel map")
+        self.use_staticHP.setToolTip("Use the current static hot pixel map - this is recommended")
         self.prev_useHP = 1
         # default is to always use static hot pixel map
         self.use_staticHP.setChecked(True)
@@ -423,46 +453,55 @@ class GUI(QDialog):
 
         # different blob parameters...
         self.new_spike_limit = QLineEdit()
+        self.new_spike_limit.setToolTip("How aggressive the dynamic hot pixel finder is - smaller is more")
         self.new_spike_limit.setText("3.0")
         self.prev_spike_limit = float(self.new_spike_limit.text())
         cmd_layout.addRow(QLabel("Spike limit:"), self.new_spike_limit)
 
         self.new_dynamic_hot_pixels = QComboBox()
+        self.new_dynamic_hot_pixels.setToolTip("Turn the dynamic hot pixel finder on or off")
         self.new_dynamic_hot_pixels.addItems(["On", "Off"])
         self.prev_dynamic_hot_pixels = 1
         cmd_layout.addRow(QLabel("Dynamic hot pixels:"), self.new_dynamic_hot_pixels)
 
         self.new_r_smooth = QLineEdit()
+        self.new_r_smooth.setToolTip("Image smooth filter radius (pixels)")
         self.new_r_smooth.setText("2.0")
         self.prev_r_smooth = float(self.new_r_smooth.text())
         cmd_layout.addRow(QLabel("Image smooth filter radius:"), self.new_r_smooth)
 
         self.new_high_pass_filter = QComboBox()
+        self.new_high_pass_filter.setToolTip("Turn the high pass filter for the image on or off")
         self.new_high_pass_filter.addItems(["Off", "On"])
         self.prev_high_pass_filter = 0 
         cmd_layout.addRow(QLabel("High pass filter:"), self.new_high_pass_filter)
 
         self.new_r_high_pass_filter = QLineEdit()
+        self.new_r_high_pass_filter.setToolTip("Radius for high pass filtering (pixel)")
         self.new_r_high_pass_filter.setText("10")
         self.prev_r_high_pass_filter = float(self.new_r_high_pass_filter.text())
         cmd_layout.addRow(QLabel("Image high pass filter radius:"), self.new_r_high_pass_filter)
 
         self.new_centroid_search_border = QLineEdit()
+        self.new_centroid_search_border.setToolTip("Distance from image edge from which to start star search (pixels)")
         self.new_centroid_search_border.setText("1.0")
         self.prev_centroid_value = float(self.new_centroid_search_border.text())
         cmd_layout.addRow(QLabel("Centroid search border:"), self.new_centroid_search_border)
 
         self.new_filter_return_image = QComboBox()
+        self.new_filter_return_image.setToolTip("Return the filtered image or the unfiltered image to the user")
         self.new_filter_return_image.addItems(["False", "True"])
         self.prev_filter_return_image = 0
         cmd_layout.addRow(QLabel("Filter returned image?:"), self.new_filter_return_image)
 
         self.new_n_sigma = QLineEdit()
+        self.new_n_sigma.setToolTip("This number times noise, plus the mean, establishes the raw pixel value threshold for blobs")
         self.new_n_sigma.setText("2.0")
         self.prev_n_sigma = float(self.new_n_sigma.text())
         cmd_layout.addRow(QLabel("Blob threshold = n*sigma + mean:"), self.new_n_sigma)
 
         self.new_unique_star_spacing = QLineEdit()
+        self.new_unique_star_spacing.setToolTip("Minimum pixel distance to distinguish two different stars")
         self.new_unique_star_spacing.setText("15")
         self.prev_unique_star_spacing = float(self.new_unique_star_spacing.text())
         cmd_layout.addRow(QLabel("Spacing between unique stars:"), self.new_unique_star_spacing)
@@ -492,7 +531,8 @@ class GUI(QDialog):
                "of telemetry to reflect this. To re-enter auto-focusing, check the box and specify the " \
                "range of focus positions you would like to check with the start and stop fields. Specify the step size and number of pictures " \
                "to take at each focus position as well. Increasing the number of photos will increase how long the auto-focusing process takes. " \
-               "If desired, the default values may be left as is. To change the " \
+               "If desired, the default values may be left as is. If an auto-focusing process is aborted mid-way (unchecking the auto-focusing flag " \
+               "while it is still going), the focus position will stay at the most recent one. To change the " \
                "aperture to one of the camera's f-numbers, select one from the drop-down menu. 2.8 is " \
                "maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If you would " \
                "like to set the focus to infinity or the aperture to maximum, select true in the drop-down " \
@@ -774,19 +814,15 @@ class GUI(QDialog):
 
     """ Toggle between enabled and disabled for the auto-focusing region of the GUI. """
     def toggleAutoFocusBox(self, state):
-        if state == Qt.Checked:
-            self.start_focus_pos.setEnabled(True)
-            self.end_focus_pos.setEnabled(True)
-            self.focus_step.setEnabled(True)
-        else:
-            self.start_focus_pos.setEnabled(False)
-            self.end_focus_pos.setEnabled(False)
-            self.focus_step.setEnabled(False)
+        self.start_focus_pos.setEnabled(state == Qt.Checked)
+        self.end_focus_pos.setEnabled(state == Qt.Checked)
+        self.focus_step.setEnabled(state == Qt.Checked)
+        self.photos_per_focus.setEnabled(state == Qt.Checked)
 
     """ Display the telemetry and camera settings on the GUI. """
     def displayTelemetryAndCameraSettings(self, data):
         # unpack the telemetry and camera settings
-        unpacked_data = struct.unpack_from("d d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii fi ii", data)
+        unpacked_data = struct.unpack_from("d d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii if ii i", data)
 
         # telemetry data parsing (always update, no matter what, since user is not interacting 
         # with this panel)
@@ -845,28 +881,28 @@ class GUI(QDialog):
             self.focus_slider.setValue(unpacked_data[14])
             self.focus_slider.updatePrevValue()
 
-        if (self.prev_auto_focus != unpacked_data[23]):
-            self.prev_auto_focus = unpacked_data[23]
-            if (unpacked_data[23] == 1):
+        if (self.prev_auto_focus != unpacked_data[24]):
+            self.prev_auto_focus = unpacked_data[24]
+            if (unpacked_data[24] == 1):
                 self.auto_focus_box.setChecked(True)
             else:
                 self.auto_focus_box.setChecked(False)
 
-        if (self.prev_start_focus != unpacked_data[24]):
-            self.prev_start_focus = unpacked_data[24]
-            self.start_focus_pos.setValue(unpacked_data[24])
+        if (self.prev_start_focus != unpacked_data[25]):
+            self.prev_start_focus = unpacked_data[25]
+            self.start_focus_pos.setValue(unpacked_data[25])
 
-        if (self.prev_end_focus != unpacked_data[25]):
-            self.prev_end_focus = unpacked_data[25]
-            self.end_focus_pos.setValue(unpacked_data[25])
+        if (self.prev_end_focus != unpacked_data[26]):
+            self.prev_end_focus = unpacked_data[26]
+            self.end_focus_pos.setValue(unpacked_data[26])
 
-        if (self.prev_focus_step != unpacked_data[26]):
-            self.prev_focus_step = unpacked_data[26]
-            self.focus_step.setValue(unpacked_data[26])
+        if (self.prev_focus_step != unpacked_data[27]):
+            self.prev_focus_step = unpacked_data[27]
+            self.focus_step.setValue(unpacked_data[27])
 
-        if (self.prev_photos_per_focus != unpacked_data[27]):
-            self.prev_photos_per_focus = unpacked_data[27]
-            self.photos_per_focus.setValue(unpacked_data[27])
+        if (self.prev_photos_per_focus != unpacked_data[28]):
+            self.prev_photos_per_focus = unpacked_data[28]
+            self.photos_per_focus.setValue(unpacked_data[28])
 
         if (self.infinity_focus_box_prev_value != unpacked_data[15]):
             self.infinity_focus_box_prev_value = unpacked_data[15]
@@ -892,58 +928,58 @@ class GUI(QDialog):
             self.exposure_box_prev_value = unpacked_data[21]
 
         # display new blob parameter information on commanding window
-        if (self.prev_spike_limit != unpacked_data[28]):
-            self.new_spike_limit.setText(str(unpacked_data[28]))
-            self.prev_spike_limit = unpacked_data[28]
+        if (self.prev_spike_limit != unpacked_data[29]):
+            self.new_spike_limit.setText(str(unpacked_data[29]))
+            self.prev_spike_limit = unpacked_data[29]
 
-        if (self.prev_dynamic_hot_pixels != unpacked_data[29]):
-            self.prev_dynamic_hot_pixels = unpacked_data[29]
-            if (unpacked_data[29] == 1):
+        if (self.prev_dynamic_hot_pixels != unpacked_data[30]):
+            self.prev_dynamic_hot_pixels = unpacked_data[30]
+            if (unpacked_data[30] == 1):
                 self.new_dynamic_hot_pixels.setCurrentText("On")
             else:
                 self.new_dynamic_hot_pixels.setCurrentText("Off")
 
-        if (self.prev_r_smooth != unpacked_data[30]):
-            self.new_r_smooth.setText(str(unpacked_data[30]))
-            self.prev_r_smooth = unpacked_data[30]
+        if (self.prev_r_smooth != unpacked_data[31]):
+            self.new_r_smooth.setText(str(unpacked_data[31]))
+            self.prev_r_smooth = unpacked_data[31]
 
-        if (self.prev_high_pass_filter != unpacked_data[31]):
-            self.prev_high_pass_filter = unpacked_data[31]
-            if (unpacked_data[31] == 1):
+        if (self.prev_high_pass_filter != unpacked_data[32]):
+            self.prev_high_pass_filter = unpacked_data[32]
+            if (unpacked_data[32] == 1):
                 self.new_high_pass_filter.setCurrentText("On")
             else:
                 self.new_high_pass_filter.setCurrentText("Off")
 
-        if (self.prev_r_high_pass_filter != unpacked_data[32]):
-            self.new_r_high_pass_filter.setText(str(unpacked_data[32]))
-            self.prev_r_high_pass_filter = unpacked_data[32]
+        if (self.prev_r_high_pass_filter != unpacked_data[33]):
+            self.new_r_high_pass_filter.setText(str(unpacked_data[33]))
+            self.prev_r_high_pass_filter = unpacked_data[33]
 
-        if (self.prev_centroid_value != unpacked_data[33]):
-            self.new_centroid_search_border.setText(str(unpacked_data[33]))
-            self.prev_centroid_value = unpacked_data[33]
+        if (self.prev_centroid_value != unpacked_data[34]):
+            self.new_centroid_search_border.setText(str(unpacked_data[34]))
+            self.prev_centroid_value = unpacked_data[34]
 
-        if (self.prev_filter_return_image != unpacked_data[34]):
-            self.prev_filter_return_image = unpacked_data[34]
-            if (unpacked_data[34] == 1):
+        if (self.prev_filter_return_image != unpacked_data[35]):
+            self.prev_filter_return_image = unpacked_data[35]
+            if (unpacked_data[35] == 1):
                 self.new_filter_return_image.setCurrentText("True")
             else:
                 self.new_filter_return_image.setCurrentText("False")
         
-        if (self.prev_n_sigma != unpacked_data[35]):
-            self.new_n_sigma.setText(str(unpacked_data[35]))
-            self.prev_n_sigma = unpacked_data[35]
+        if (self.prev_n_sigma != unpacked_data[36]):
+            self.new_n_sigma.setText(str(unpacked_data[36]))
+            self.prev_n_sigma = unpacked_data[36]
 
-        if (self.prev_unique_star_spacing != unpacked_data[36]):
-            self.new_unique_star_spacing.setText(str(unpacked_data[36]))
-            self.prev_unique_star_spacing = unpacked_data[36]
+        if (self.prev_unique_star_spacing != unpacked_data[37]):
+            self.new_unique_star_spacing.setText(str(unpacked_data[37]))
+            self.prev_unique_star_spacing = unpacked_data[37]
 
-        if (self.prev_makeHP != bool(unpacked_data[37])):
-            self.make_staticHP.setChecked(bool(unpacked_data[37]))
-            self.prev_makeHP = unpacked_data[37]
+        if (self.prev_makeHP != bool(unpacked_data[38])):
+            self.make_staticHP.setChecked(bool(unpacked_data[38]))
+            self.prev_makeHP = unpacked_data[38]
 
-        if (self.prev_useHP != bool(unpacked_data[38])):
-            self.use_staticHP.setChecked(bool(unpacked_data[38]))
-            self.prev_useHP = unpacked_data[38]
+        if (self.prev_useHP != bool(unpacked_data[39])):
+            self.use_staticHP.setChecked(bool(unpacked_data[39]))
+            self.prev_useHP = unpacked_data[39]
 
     """ Update StarCamera image data. """
     def updateImageData(self, image_bytes):
@@ -957,14 +993,15 @@ class GUI(QDialog):
 
     """ Update telemetry plot data on GUI. """
     def updatePlotData(self):
-        # update each telemetry plot with new time and respective data points
-        self.altitude_line.setData(self.time, self.alt) 
-        self.azimuth_line.setData(self.time, self.az)
-        self.ra_line.setData(self.time, self.ra)
-        self.dec_line.setData(self.time, self.dec)
-        self.fr_line.setData(self.time, self.fr)
-        self.ps_line.setData(self.time, self.ps)
-        self.ir_line.setData(self.time, self.ir)
+        if not (self.auto_focus_box.isChecked()):
+            # update each telemetry plot with new time and respective data points (if not auto-focusing)
+            self.altitude_line.setData(self.time, self.alt) 
+            self.azimuth_line.setData(self.time, self.az)
+            self.ra_line.setData(self.time, self.ra)
+            self.dec_line.setData(self.time, self.dec)
+            self.fr_line.setData(self.time, self.fr)
+            self.ps_line.setData(self.time, self.ps)
+            self.ir_line.setData(self.time, self.ir)
 
     """ Update the telemetry timer as its internal clock updates. """
     def onCountChanged(self, value):
@@ -1038,7 +1075,6 @@ class GUI(QDialog):
 
         # Astrometry solving timeout
         timelimit = int(self.timelimit.value())
-        print(timelimit)
 
         # get focus information from GUI and process it as command
         set_focus_to_amount = self.focus_slider.value()
