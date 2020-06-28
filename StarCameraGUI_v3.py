@@ -260,8 +260,9 @@ class GUI(QDialog):
         # set up area for live-stream of data from StarCamera
         telemetry_layout = QFormLayout()
         self.time_box = QLabel()
+        self.prev_time = 0
         self.time_box.setToolTip("The timestamp corresponding to the most recent image and Astrometry solution")
-        telemetry_layout.addRow(QLabel("Time:"), self.time_box)
+        telemetry_layout.addRow(QLabel("Greenwich Mean Time (GMT):"), self.time_box)
         self.ra_box = QLabel()
         self.ra_box.setToolTip("Observed right ascension (degrees)")
         telemetry_layout.addRow(QLabel("RA [deg]:"), self.ra_box)
@@ -348,7 +349,7 @@ class GUI(QDialog):
         self.timelimit.setToolTip("How many cycles Astrometry will iterate\nthrough before timing out (if a solution is not found)")
         self.timelimit.setValue(5)          # cycles
         self.prev_timelimit = 5
-        self.timelimit.setMinimum(5)        # can't time out immediately or we will never solve!
+        self.timelimit.setMinimum(1)        # can't time out immediately or we will never solve!
         self.timelimit.setMaximum(50)       # also don't want to try to solve forever
         cmd_layout.addRow(QLabel("Astrometry timeout in cycles:"), self.timelimit)
 
@@ -381,8 +382,8 @@ class GUI(QDialog):
 
         # sublayout for auto-focusing
         self.auto_focus_box = QCheckBox("&Automatic &Focusing:")
-        # default is to begin in automatic focusing mode
-        self.auto_focus_box.setChecked(True)
+        # default is to assume auto-focusing has already taken place (if this is not true, GUI will update upon connection to the camera)
+        self.auto_focus_box.setChecked(False)
         self.auto_focus_box.setToolTip("Re-enter auto-focusing or turn it off (and maintain current position)")
         self.auto_focus_group = QGroupBox()
         self.auto_focus_group.setContentsMargins(0, 0, 0, 0)
@@ -393,7 +394,7 @@ class GUI(QDialog):
         auto_focus_layout.setSpacing(2)
         # disable auto-focus subgroup if auto focus box is unchecked
         self.auto_focus_box.stateChanged.connect(self.toggleAutoFocusBox)
-        self.prev_auto_focus = 1
+        self.prev_auto_focus = 0
         self.start_focus_pos = QSpinBox()
         self.start_focus_pos.setToolTip("Where to start the auto-focusing search")
         self.prev_start_focus = 0
@@ -542,7 +543,13 @@ class GUI(QDialog):
                "static hot pixel map on and off, check the 'use' button. These checkboxes will update to the current " \
                "Star Camera settings on every iteration the telemetry is received from the camera. " \
                "Once the commands you wish to send are entered, press the 'Send Commands' button. Left click on the " \
-               "graphics to export data and save as files." 
+               "graphics to export data and save as files.\n\n*WARNING: attempting to export the image as a CSV or HDF5 will result in an error pop-up; pyqtgraph " \
+               "raises an exception for trying to export their ImageItem()'s, since they are not PlotItem()'s.\n\n**Notes about the auto-focusing curve: if you connect " \
+               "to the camera in the middle of an auto-focusing process, your curve will only receive and show data from that point on. Likewise, if you start another " \
+               "auto-focusing process, the existing auto-focusing curve will be erased, so be sure to export that data beforehand if you require it. The auto-focusing checkbox " \
+               "also controls the reception of auto-focusing data - unpressing it during the middle of auto-focusing without pressing the send commands button will not halt " \
+               "the auto-focusing process, but it will halt the reception of auto-focus data (and therefore the curve will pause at its current state). It is recommended that " \
+               "you only check this button on when you are entering an auto-focusing process and off when you want to send a command to halt a current one." 
         instructions.setFont(QFont("Helvetica", 9, QFont.Light))
         instructions.setText(text)
         instructions.setWordWrap(True)
@@ -562,7 +569,7 @@ class GUI(QDialog):
         self.photoTab.addTab(self.image_widget, "&Images")
 
         # lists to append telemetry to upon arrival
-        self.time, self.alt, self.az, self.ra, self.dec, self.fr, self.ir, self.ps = [], [], [], [], [], [], [], []
+        self.time, self.alt, self.az, self.ra, self.dec, self.fr, self.ir, self.ps, self.auto_focus, self.flux = [], [], [], [], [], [], [], [], [], []
         # create pyqtgraph plot widgets
         self.alt_graph_widget = pg.PlotWidget()
         self.az_graph_widget = pg.PlotWidget()
@@ -571,6 +578,7 @@ class GUI(QDialog):
         self.fr_graph_widget = pg.PlotWidget()
         self.ps_graph_widget = pg.PlotWidget()
         self.ir_graph_widget = pg.PlotWidget()
+        self.af_graph_widget = pg.PlotWidget()
         # add grid
         self.alt_graph_widget.showGrid(x = True, y = True)
         self.az_graph_widget.showGrid(x = True, y = True)
@@ -579,6 +587,7 @@ class GUI(QDialog):
         self.fr_graph_widget.showGrid(x = True, y = True)
         self.ps_graph_widget.showGrid(x = True, y = True)
         self.ir_graph_widget.showGrid(x = True, y = True)
+        self.af_graph_widget.showGrid(x = True, y = True)
         # add all tabs/graphs to the GUI photo section
         self.photoTab.addTab(self.alt_graph_widget, "&Altitude")
         self.photoTab.addTab(self.az_graph_widget, "&Azimuth")
@@ -587,6 +596,7 @@ class GUI(QDialog):
         self.photoTab.addTab(self.fr_graph_widget, "&FR")
         self.photoTab.addTab(self.ps_graph_widget, "&PS")
         self.photoTab.addTab(self.ir_graph_widget, "&IR")
+        self.photoTab.addTab(self.af_graph_widget, "&Auto-Focus")
 
         # create the top section of the GUI
         topLayout = QVBoxLayout()
@@ -648,6 +658,7 @@ class GUI(QDialog):
             self.fr_graph_widget.setBackground("#ffffff")
             self.ps_graph_widget.setBackground("#ffffff")
             self.ir_graph_widget.setBackground("#ffffff")
+            self.af_graph_widget.setBackground("#ffffff")
             # titles of graphs
             titleStyle = {"color": "#524f4f", "font-size": "30pt"}
             self.alt_graph_widget.setTitle("Observed  Altitude [deg]", **titleStyle)
@@ -657,6 +668,7 @@ class GUI(QDialog):
             self.fr_graph_widget.setTitle("Observed Field Rotation [deg]", **titleStyle)
             self.ps_graph_widget.setTitle("Observed Pixel Scale [arcsec/px]", **titleStyle)
             self.ir_graph_widget.setTitle("Observed Image Rotation [deg]", **titleStyle)
+            self.af_graph_widget.setTitle("Auto-focusing curve", **titleStyle)
             # axes labels for graphs
             labelStyle = {"color": "#524f4f", "font-size": "10pt"}
             self.alt_graph_widget.setLabel("left", "Altitude [deg]", **labelStyle)
@@ -680,6 +692,9 @@ class GUI(QDialog):
             self.ir_graph_widget.setLabel("left", "IR [deg]", **labelStyle)
             self.ir_graph_widget.setLabel("right", "IR [deg]", **labelStyle)
             self.ir_graph_widget.setLabel("bottom", "Raw time [seconds]", **labelStyle)
+            self.af_graph_widget.setLabel("left", "Flux [raw pixel value]", **labelStyle)
+            self.af_graph_widget.setLabel("right", "Flux [raw pixel value]", **labelStyle)
+            self.af_graph_widget.setLabel("bottom", "Focus position [encoder counts]", **labelStyle)
             # create a reference to the line of each graph for updating telemetry as it arrives
             pen = pg.mkPen(color = "#524f4f", width = 3)
             self.altitude_line = self.alt_graph_widget.plot(self.time, self.alt, pen = pen, symbol = "o", symbolSize = 9, symbolBrush = ("#524f4f"))
@@ -689,6 +704,7 @@ class GUI(QDialog):
             self.fr_line = self.fr_graph_widget.plot(self.time, self.fr, pen = pen, symbol = "o", symbolSize = 9, symbolBrush = ("#524f4f"))
             self.ps_line = self.ps_graph_widget.plot(self.time, self.ps, pen = pen, symbol = "o", symbolSize = 9, symbolBrush = ("#524f4f")) 
             self.ir_line = self.ir_graph_widget.plot(self.time, self.ir, pen = pen, symbol = "o", symbolSize = 9, symbolBrush = ("#524f4f"))
+            self.af_line = self.af_graph_widget.plot(self.auto_focus, self.flux, pen = pen, symbol = "o", symbolSize = 9, symbolBrush = ("#524f4f"))
         elif self.colorComboBox.currentText() == "Dark":
             # define dark color palette
             self.dark_palette = QPalette()
@@ -714,6 +730,7 @@ class GUI(QDialog):
             self.fr_graph_widget.setBackground("#434343")
             self.ps_graph_widget.setBackground("#434343")
             self.ir_graph_widget.setBackground("#434343")
+            self.af_graph_widget.setBackground("#434343")
             # titles of graphs
             titleStyle = {"color": "#FFF", "font-size": "30pt"}
             self.alt_graph_widget.setTitle("Observed  Altitude [deg]", **titleStyle)
@@ -723,6 +740,7 @@ class GUI(QDialog):
             self.fr_graph_widget.setTitle("Observed Field Rotation [deg]", **titleStyle)
             self.ps_graph_widget.setTitle("Observed Pixel Scale [arcsec/px]", **titleStyle)
             self.ir_graph_widget.setTitle("Observed Image Rotation [deg]", **titleStyle)
+            self.af_graph_widget.setTitle("Auto-focusing curve", **titleStyle)
             # axes labels for graphs
             labelStyle = {"color": "#FFF", "font-size": "10pt"}
             self.alt_graph_widget.setLabel("left", "Altitude [deg]", **labelStyle)
@@ -746,6 +764,9 @@ class GUI(QDialog):
             self.ir_graph_widget.setLabel("left", "IR [deg]", **labelStyle)
             self.ir_graph_widget.setLabel("right", "IR [deg]", **labelStyle)
             self.ir_graph_widget.setLabel("bottom", "Raw time [seconds]", **labelStyle)
+            self.af_graph_widget.setLabel("left", "Flux [raw pixel value]", **labelStyle)
+            self.af_graph_widget.setLabel("right", "Flux [raw pixel value]", **labelStyle)
+            self.af_graph_widget.setLabel("bottom", "Focus position [encoder counts]", **labelStyle)
             # create a reference to the line of each graph for updating telemetry as it arrives
             pen = pg.mkPen(color = "w", width = 3)
             self.altitude_line = self.alt_graph_widget.plot(self.time, self.alt, pen = pen, symbol = "o", symbolsize = 8, symbolBrush = ("w"))
@@ -755,6 +776,7 @@ class GUI(QDialog):
             self.fr_line = self.fr_graph_widget.plot(self.time, self.fr, pen = pen, symbol = "o", symbolSize = 8, symbolBrush = ("w"))
             self.ps_line = self.ps_graph_widget.plot(self.time, self.ps, pen = pen, symbol = "o", symbolSize = 8, symbolBrush = ("w")) 
             self.ir_line = self.ir_graph_widget.plot(self.time, self.ir, pen = pen, symbol = "o", symbolSize = 8, symbolBrush = ("w"))
+            self.af_line = self.af_graph_widget.plot(self.auto_focus, self.flux, pen = pen, symbol = "o", symbolSize = 8, symbolBrush = ("w"))
             QApplication.setPalette(self.dark_palette)
         """ deprecated:
         elif self.colorComboBox.currentText() == "Nightime Blue":
@@ -822,11 +844,11 @@ class GUI(QDialog):
     """ Display the telemetry and camera settings on the GUI. """
     def displayTelemetryAndCameraSettings(self, data):
         # unpack the telemetry and camera settings
-        unpacked_data = struct.unpack_from("d d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii if ii i", data)
+        unpacked_data = struct.unpack_from("d d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii ii fi ii", data)
 
         # telemetry data parsing (always update, no matter what, since user is not interacting 
         # with this panel)
-        self.time_box.setText(time.ctime(unpacked_data[1]))
+        self.time_box.setText(time.asctime(time.gmtime(unpacked_data[1])))
         self.time.append(unpacked_data[1])
         self.ra_box.setText(str(unpacked_data[6]))
         self.ra.append(unpacked_data[6])
@@ -842,6 +864,13 @@ class GUI(QDialog):
         self.ir.append(unpacked_data[10])
         self.ps_box.setText(str(unpacked_data[9]))
         self.ps.append(unpacked_data[9])
+        # only add to our auto-focusing data if we are in an auto-focusing process
+        if (unpacked_data[24]) and (self.focus_slider.value() != unpacked_data[14]) and (unpacked_data[29] != 0):
+            print("In auto-focusing process, so appending to auto-focus data")
+            self.auto_focus.append(unpacked_data[14])
+            print(self.auto_focus)
+            self.flux.append(unpacked_data[29])
+            print(self.flux)
 
         # if newly received logodds value is different from previous value, update logodds field
         # (and do the same for all following fields for camera settings)
@@ -928,58 +957,58 @@ class GUI(QDialog):
             self.exposure_box_prev_value = unpacked_data[21]
 
         # display new blob parameter information on commanding window
-        if (self.prev_spike_limit != unpacked_data[29]):
-            self.new_spike_limit.setText(str(unpacked_data[29]))
-            self.prev_spike_limit = unpacked_data[29]
+        if (self.prev_spike_limit != unpacked_data[30]):
+            self.new_spike_limit.setText(str(unpacked_data[30]))
+            self.prev_spike_limit = unpacked_data[30]
 
-        if (self.prev_dynamic_hot_pixels != unpacked_data[30]):
-            self.prev_dynamic_hot_pixels = unpacked_data[30]
-            if (unpacked_data[30] == 1):
+        if (self.prev_dynamic_hot_pixels != unpacked_data[31]):
+            self.prev_dynamic_hot_pixels = unpacked_data[31]
+            if (unpacked_data[31] == 1):
                 self.new_dynamic_hot_pixels.setCurrentText("On")
             else:
                 self.new_dynamic_hot_pixels.setCurrentText("Off")
 
-        if (self.prev_r_smooth != unpacked_data[31]):
-            self.new_r_smooth.setText(str(unpacked_data[31]))
-            self.prev_r_smooth = unpacked_data[31]
+        if (self.prev_r_smooth != unpacked_data[32]):
+            self.new_r_smooth.setText(str(unpacked_data[32]))
+            self.prev_r_smooth = unpacked_data[32]
 
-        if (self.prev_high_pass_filter != unpacked_data[32]):
-            self.prev_high_pass_filter = unpacked_data[32]
-            if (unpacked_data[32] == 1):
+        if (self.prev_high_pass_filter != unpacked_data[33]):
+            self.prev_high_pass_filter = unpacked_data[33]
+            if (unpacked_data[33] == 1):
                 self.new_high_pass_filter.setCurrentText("On")
             else:
                 self.new_high_pass_filter.setCurrentText("Off")
 
-        if (self.prev_r_high_pass_filter != unpacked_data[33]):
-            self.new_r_high_pass_filter.setText(str(unpacked_data[33]))
-            self.prev_r_high_pass_filter = unpacked_data[33]
+        if (self.prev_r_high_pass_filter != unpacked_data[34]):
+            self.new_r_high_pass_filter.setText(str(unpacked_data[34]))
+            self.prev_r_high_pass_filter = unpacked_data[34]
 
-        if (self.prev_centroid_value != unpacked_data[34]):
-            self.new_centroid_search_border.setText(str(unpacked_data[34]))
-            self.prev_centroid_value = unpacked_data[34]
+        if (self.prev_centroid_value != unpacked_data[35]):
+            self.new_centroid_search_border.setText(str(unpacked_data[35]))
+            self.prev_centroid_value = unpacked_data[35]
 
-        if (self.prev_filter_return_image != unpacked_data[35]):
-            self.prev_filter_return_image = unpacked_data[35]
-            if (unpacked_data[35] == 1):
+        if (self.prev_filter_return_image != unpacked_data[36]):
+            self.prev_filter_return_image = unpacked_data[36]
+            if (unpacked_data[36] == 1):
                 self.new_filter_return_image.setCurrentText("True")
             else:
                 self.new_filter_return_image.setCurrentText("False")
         
-        if (self.prev_n_sigma != unpacked_data[36]):
-            self.new_n_sigma.setText(str(unpacked_data[36]))
-            self.prev_n_sigma = unpacked_data[36]
+        if (self.prev_n_sigma != unpacked_data[37]):
+            self.new_n_sigma.setText(str(unpacked_data[37]))
+            self.prev_n_sigma = unpacked_data[37]
 
-        if (self.prev_unique_star_spacing != unpacked_data[37]):
-            self.new_unique_star_spacing.setText(str(unpacked_data[37]))
-            self.prev_unique_star_spacing = unpacked_data[37]
+        if (self.prev_unique_star_spacing != unpacked_data[38]):
+            self.new_unique_star_spacing.setText(str(unpacked_data[38]))
+            self.prev_unique_star_spacing = unpacked_data[38]
 
-        if (self.prev_makeHP != bool(unpacked_data[38])):
-            self.make_staticHP.setChecked(bool(unpacked_data[38]))
-            self.prev_makeHP = unpacked_data[38]
+        if (self.prev_makeHP != bool(unpacked_data[39])):
+            self.make_staticHP.setChecked(bool(unpacked_data[39]))
+            self.prev_makeHP = unpacked_data[39]
 
-        if (self.prev_useHP != bool(unpacked_data[39])):
-            self.use_staticHP.setChecked(bool(unpacked_data[39]))
-            self.prev_useHP = unpacked_data[39]
+        if (self.prev_useHP != bool(unpacked_data[40])):
+            self.use_staticHP.setChecked(bool(unpacked_data[40]))
+            self.prev_useHP = unpacked_data[40]
 
     """ Update StarCamera image data. """
     def updateImageData(self, image_bytes):
@@ -993,7 +1022,9 @@ class GUI(QDialog):
 
     """ Update telemetry plot data on GUI. """
     def updatePlotData(self):
-        if not (self.auto_focus_box.isChecked()):
+        if (not (self.auto_focus_box.isChecked())) and (self.prev_time != self.time[-1]):
+            print("New data points, so updating graphs...")
+            self.prev_time = self.time[-1]
             # update each telemetry plot with new time and respective data points (if not auto-focusing)
             self.altitude_line.setData(self.time, self.alt) 
             self.azimuth_line.setData(self.time, self.az)
@@ -1002,6 +1033,8 @@ class GUI(QDialog):
             self.fr_line.setData(self.time, self.fr)
             self.ps_line.setData(self.time, self.ps)
             self.ir_line.setData(self.time, self.ir)
+        elif (self.auto_focus_box.isChecked()):
+            self.af_line.setData(self.auto_focus, self.flux)
 
     """ Update the telemetry timer as its internal clock updates. """
     def onCountChanged(self, value):
@@ -1090,7 +1123,7 @@ class GUI(QDialog):
             self.displayWarning("focus_range", 0)
 
         step_size = int(self.focus_step.value())
-        if not (isinstance((end_focus - start_focus)/step_size, int)) and auto_focus_bool:
+        if ((end_focus - start_focus) % step_size != 0) and auto_focus_bool:
             self.displayWarning("auto-focusing", step_size)
 
         photos_per_focus = int(self.photos_per_focus.value())
@@ -1183,6 +1216,12 @@ class GUI(QDialog):
                                        star_spacing_value)
         # send these commands to things listening to the send_commands_signal
         self.send_commands_signal.emit(cmds_for_camera)
+
+        # if this is the first iteration of the new auto-focusing process
+        if (auto_focus_bool):
+            print("Emptying old auto-focusing data")
+            self.auto_focus = []
+            self.flux = []
 
         # update previous value attributes of the focus and aperture sliders
         self.focus_slider.updatePrevValue()
