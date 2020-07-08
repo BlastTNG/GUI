@@ -1,4 +1,6 @@
-![SO_logo](https://twitter.com/SimonsObs/photo "Simons Observatory") GUI
+<img src="https://pbs.twimg.com/profile_images/1123004309321474048/fHxBZ2YE_400x400.png" width="100">
+
+GUI
 ===
 Python source code for the Star Camera GUI. Includes the main file (`StarCameraGUI_v3.py`) and an intermediary file containing the functions for receiving TCP data from the Star Camera computer (`listening_final.py`). The application is included in the software release (download the installation package) so the source code itself does not have to be downloaded.
 
