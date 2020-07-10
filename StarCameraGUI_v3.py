@@ -19,7 +19,7 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 CAMERA_WIDTH = 1936 
 CAMERA_HEIGHT = 1216
 # time limit for progress bar of telemetry-timing thread
-TIME_LIMIT = 20 
+TIME_LIMIT = 30 
 # possible aperture values on Star Camera (Canon EF f/2.8)
 aperture_range = ["2.8", "3.0", "3.3", "3.6", "4.0", "4.3", "4.7", "5.1", "5.6", "6.1", "6.7", "7.3", "8.0", "8.7", 
                   "9.5", "10.3", "11.3", "12.3", "13.4", "14.6", "16.0", "17.4", "19.0", "20.7", "22.6", "24.6", "26.9",
@@ -600,7 +600,7 @@ class GUI(QDialog):
         self.photo_tab.addTab(self.image_widget, "&Images")
 
         # lists to append telemetry to upon arrival
-        self.time, self.alt, self.az, self.ra, self.dec, self.fr, self.ir, self.ps = [], [], [], [], [], [], [], ][]
+        self.time, self.alt, self.az, self.ra, self.dec, self.fr, self.ir, self.ps = [], [], [], [], [], [], [], []
         self.auto_focus, self.flux = [], []
         # create pyqtgraph plot widgets
         self.alt_graph_widget = pg.PlotWidget()
@@ -881,7 +881,7 @@ class GUI(QDialog):
                 msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
                 msg.setIcon(QMessageBox.Critical)
                 msg.setText("Could not establish a connection with Star Camera based on this IP address. Please " \
-                            "enter another.")
+                            "enter another or make sure the camera is on and running.")
                 msg.setStandardButtons(QMessageBox.Ok)
                 msg.exec_()
         except ValueError:
@@ -935,9 +935,7 @@ class GUI(QDialog):
         if (unpacked_data[24]) and (self.focus_slider.previous_value != unpacked_data[14]):
             print("In auto-focusing process, so appending to auto-focus data")
             self.auto_focus.append(unpacked_data[14])
-            print(self.auto_focus)
             self.flux.append(unpacked_data[29])
-            print(self.flux)
 
         # if newly received logodds value is different from previous value, update logodds field
         # (and do the same for all following fields for camera settings)
@@ -1395,6 +1393,20 @@ class GUI(QDialog):
         msg.setIcon(QMessageBox.Information)
         msg.setText("Pausing telemetry reception. Press the start button in the upper righthand corner to resume.")
         msg.exec_()
+
+    """
+    Override the closeEvent() method of the GUI window, built on the QDialog class.
+    Inputs: self, the event (clicking the X button).
+    Outputs: None. Closes the window if the user confirms or keeps it open.
+    """
+    def closeEvent(self, event):
+        quit_msg = "Are you sure you want to exit the Star Camera application?"
+        quit_window = QMessageBox()
+        reply = quit_window.question(self, "Confirm Exit", quit_msg, QMessageBox.Yes, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
