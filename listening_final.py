@@ -5,16 +5,20 @@ import struct
 import os
 
 """ 
-Write information to the Star Camera data file.
+Creates and writs information header to the Star Camera data file if it does not already exist. If it does,
+the file already includes a header, so the function just returns in that case.
 Inputs: None.
 Outputs: None. Writes information to the file and closes file.
 """
 def prepareBackupFile():
     script_dir = os.path.dirname(os.path.realpath(__file__))
-    data_file = open(script_dir + os.path.sep + "data.txt", "a+")
-    header = ["C time (sec),GMT,RA (deg),DEC (deg),FR (deg),PS (arcsec/px),IR (deg),ALT (deg),AZ (deg)\n"]
-    data_file.writelines(header)
-    data_file.close()
+    try:
+        data_file = open(script_dir + os.path.sep + "data.txt", "x")
+        header = ["C time (sec),GMT,RA (deg),DEC (deg),FR (deg),PS (arcsec/px),IR (deg),ALT (deg),AZ (deg)\n"]
+        data_file.writelines(header)
+        data_file.close()
+    except FileExistsError:
+        return
 
 """
 Write telemetry to backup data file for the user.
@@ -38,15 +42,14 @@ Create a socket with the Star Camera server on which to receive telemetry and se
 Inputs: Known IP address of Star Camera computer.
 Outputs: The Star Camera socket, the Star Camera IP, and the Star Camera port.
 """
-def establishStarCamSocket(StarCam_IP):
+def establishStarCamSocket(StarCam_IP, user_port):
     # establish port with Star Camera
-    StarCam_PORT = 8000
-    server_addr = (StarCam_IP, StarCam_PORT)
+    server_addr = (StarCam_IP, user_port)
     # TCP socket
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(server_addr)
     print("Connected to %s" % repr(server_addr))
-    return (s, StarCam_IP, StarCam_PORT)
+    return (s, StarCam_IP, user_port)
 
 """
 Receive telemetry and camera settings from Star Camera.
@@ -55,10 +58,15 @@ Outputs: Raw, unpacked Star Camera data.
 """
 def getStarCamData(client_socket):
     # number of expected bytes is hard-coded
-    (StarCam_data, _) = client_socket.recvfrom(224)   
-    backupStarCamData(StarCam_data)
-    print("Received Star Camera data.")
-    return StarCam_data
+    try: 
+        (StarCam_data, _) = client_socket.recvfrom(224)   
+        backupStarCamData(StarCam_data)
+        print("Received Star Camera data.")
+        return StarCam_data
+    except ConnectionResetError:
+        return None
+    except struct.error:
+        return None
 
 """
 Receive image bytes from camera.

@@ -35,10 +35,15 @@ class Counter(QThread):
 
     def run(self):
         self.count = 0
-        while self.count < TIME_LIMIT:
+        while self.count < TIME_LIMIT and (not self.isInterruptionRequested()):
             self.count += 1
             time.sleep(1)
             self.count_changed.emit(self.count)
+
+    def reset(self):
+        self.requestInterruption()
+        self.count = 0
+
 
 """
 Class for a horizontal slider the user can adjust.
@@ -189,6 +194,7 @@ class TelemetryThread(QThread):
     image_received = pyqtSignal(object)
     telemetry_received_for_timer = pyqtSignal(bool)
     socket_transport = pyqtSignal(object)
+    disconnected = pyqtSignal(bool)
 
     # function to get the socket and attach it as an attribute to the thread
     def getSocket(self, socket_bundle):
@@ -200,12 +206,19 @@ class TelemetryThread(QThread):
     def run(self):
         while not self.isInterruptionRequested(): 
             telemetry = listening_final.getStarCamData(self.StarCam_socket)
+            if isinstance(telemetry, type(None)):
+                self.disconnected.emit(True)
+                break
             # emit this telemetry to the main GUI thread
             self.telemetry_received.emit(telemetry)
             self.telemetry_received_for_timer.emit(True)
             # receive and emit image data to the main GUI thread
-            image = listening_final.getStarCamImage(self.StarCam_socket)
-            self.image_received.emit(image)
+            image = listening_final.getStarCamImage(self.StarCam_socket) 
+            if isinstance(image, type(None)):
+                self.disconnected.emit(True)
+                break
+            else:
+                self.image_received.emit(image)
 
 """
 Class for creating the main GUI window. Methods are described below before each one.
@@ -225,8 +238,9 @@ class GUI(QDialog):
 
         # move window to position on user's computer screen and resize it
         self.move(100, 0)
-        self.setFixedSize(1800, 950)
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+        self.setWindowFlag(Qt.WindowMinimizeButtonHint, True)
+        self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
         self.GUItelemetry = TelemetryThread()
         self.GUIcommanding = CommandingThread() 
@@ -245,9 +259,11 @@ class GUI(QDialog):
         # connect signal emitted by thread upon image reception to the display 
         # image function
         self.GUItelemetry.image_received.connect(self.updateImageData)
+        self.GUItelemetry.disconnected.connect(self.resetConnection)
 
         self.timing_thread = Counter()
         self.timing_thread.count_changed.connect(self.onCountChanged)
+        self.GUItelemetry.disconnected.connect(self.timing_thread.reset)
 
         # get data file ready for future reference
         listening_final.prepareBackupFile()
@@ -281,12 +297,11 @@ class GUI(QDialog):
 
         # create the telemetry section of the GUI
         self.telemetry_group_box = QGroupBox("&Telemetry")
-        self.telemetry_group_box.setMinimumWidth(350)
+        self.telemetry_group_box.setMinimumWidth(375)
 
         telemetry_layout = QFormLayout()
         self.time_box = QLabel()
         self.time_box.setToolTip("The timestamp corresponding to the most recent image and Astrometry solution")
-        self.prev_time = 0
         telemetry_layout.addRow(QLabel("Greenwich Mean Time (GMT):"), self.time_box)
         self.ra_box = QLabel()
         self.ra_box.setToolTip("Observed right ascension (degrees)")
@@ -393,8 +408,8 @@ class GUI(QDialog):
         # label the focus slider
         label_minimum = QLabel(alignment = Qt.AlignLeft)
         self.focus_slider.minimum_changed.connect(label_minimum.setNum)
-        label_maximum = QLabel(alignment = Qt.AlignRight)
-        self.focus_slider.maximum_changed.connect(label_maximum.setNum)
+        self.label_maximum = QLabel(alignment = Qt.AlignRight)
+        self.focus_slider.maximum_changed.connect(self.label_maximum.setNum)
         self.focus_slider_label = QLabel(str(self.focus_slider.value()), alignment = Qt.AlignCenter)
         self.focus_slider.valueChanged.connect(self.focus_slider_label.setNum)
         self.focus_slider.setPrevValue()
@@ -403,10 +418,11 @@ class GUI(QDialog):
         focus_slider_vbox.addLayout(focus_slider_hbox)
         focus_slider_hbox.addWidget(label_minimum, Qt.AlignLeft)
         focus_slider_hbox.addWidget(self.focus_slider_label, Qt.AlignCenter)
-        focus_slider_hbox.addWidget(label_maximum, Qt.AlignRight)
+        focus_slider_hbox.addWidget(self.label_maximum, Qt.AlignRight)
 
         # sublayout for auto-focusing
         self.auto_focus_box = QCheckBox("&Automatic &Focusing:")
+        self.auto_focus_state = 0
         # default is to assume auto-focusing has already taken place (if this 
         # is not true, GUI will update upon connection to the camera)
         self.auto_focus_box.setChecked(False)
@@ -547,6 +563,7 @@ class GUI(QDialog):
 
         # create section for displaying photos (and add a tab for instructions)
         self.photo_tab = QTabWidget()
+        self.photo_tab.setMinimumWidth(750)
         instructions = QLabel(alignment = Qt.AlignTop)
         instructions.setIndent(10)
         text = "Enter your commands to control the Star Camera. The 'logodds' parameter controls how many false " \
@@ -555,33 +572,35 @@ class GUI(QDialog):
                "changing the exposure, only enter integer values between 1 millisecond and 1 second. The camera will " \
                "adjust the exposure to a decimal value, which will be displayed, but only enter commands as " \
                "integers. To change the focus to a certain count, specify the position on the 'Set focus to:' " \
-               "scrollbar. By default, the camera begins in auto-focusing mode to determine the optimal focus " \
-               "position given an observing session's particular conditions and then switches to manual focusing " \
-               "mode, where the user can make changes and send them with the slider. If the camera has been running " \
-               "before the user connects, it will have already performed auto-focusing, so the GUI will update upon " \
-               "reception of the first batch of telemetry to reflect this. To re-enter auto-focusing, check the box " \
-               "and specify the range of focus positions you would like to check with the start and stop fields. " \
-               "Specify the step size and number of pictures to take at each focus position as well. Increasing the " \
-               "number of photos will increase how long the auto-focusing process takes. If desired, the default " \
-               "values may be left as is. If an auto-focusing process is aborted mid-way (unchecking the " \
-               "auto-focusing flag while it is still going), the focus position will stay at the most recent one. " \
-               "To change the aperture to one of the camera's f-numbers, select one from the drop-down menu. 2.8 is " \
-               "maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If you would like to set " \
-               "the focus to infinity or the aperture to maximum, select true in the drop-down menu(s). For changing " \
-               "the blob-finding parameters, enter the desired values in the proper entry field. If you are taking " \
-               "dark images and wish to re-make the static hot pixel mask, check the box, though this is not " \
-               "recommended (one has been made and tested previously). To turn this static hot pixel map on and off, " \
-               "check the 'use' button. These checkboxes will update to the current Star Camera settings on every " \
-               "iteration the telemetry is received from the camera. Once the commands you wish to send are entered, " \
-               "press the 'Send Commands' button. Left click on the graphics to export data and save as files." \
-               "\n\n*WARNING: attempting to export the image as a CSV or HDF5 will result in an error pop-up; " \
-               "pyqtgraph raises an exception for trying to export their ImageItem()'s, since they are not " \
-               "PlotItem()'s.\n\n**Notes about the auto-focusing curve: if you connect to the camera in the middle " \
-               "of an auto-focusing process, your curve will only receive and show data from that point on. " \
+               "scrollbar. You can also jump to infinity with the drop-down menu, but keep in mind that this command " \
+               "takes precedence (i.e. if you issue a slider command and a set focus to infinity command, the " \
+               "infinity command will be executed). By default, the camera begins in auto-focusing mode to determine " \
+               "the optimal focus position given an observing session's particular conditions and then switches to " \
+               "manual focusing mode, where the user can make changes and send them with the slider. If the camera " \
+               "has been running before the user connects, it will have already performed auto-focusing, so the GUI " \
+               "will update upon reception of the first batch of telemetry to reflect this. To re-enter " \
+               "auto-focusing, check the box and specify the range of focus positions you would like to check with " \
+               "the start and stop fields. Specify the step size and number of pictures to take at each focus " \
+               "position as well. Increasing the number of photos will increase how long the auto-focusing process " \
+               "takes. If desired, the default values may be left as is. If an auto-focusing process is aborted " \
+               "mid-way (unchecking the auto-focusing flag while it is still going), the focus position will stay at " \
+               "the most recent one. To change the aperture to one of the camera's f-numbers, select one from the " \
+               "drop-down menu. 2.8 is maximum aperture (fully open) and 32.0 is minimum aperture (fully closed). If " \
+               "you would like to set the focus to infinity or the aperture to maximum, select true in the drop-down " \
+               "menu(s). For changing the blob-finding parameters, enter the desired values in the proper entry " \
+               "field. If you are taking dark images and wish to re-make the static hot pixel mask, check the box, " \
+               "though this is not recommended (one has been made and tested previously). To turn this static hot " \
+               "pixel map on and off, check the 'use' button. These checkboxes will update to the current Star " \
+               "Camera settings on every iteration the telemetry is received from the camera. Once the commands you " \
+               "wish to send are entered, press the 'Send Commands' button. Left click on the graphics to export " \
+               "data and save as files.\n\n*WARNING: attempting to export the image as a CSV or HDF5 will result in " \
+               "an error pop-up; PyQtGraph raises an exception for trying to export their ImageItem()'s, since they " \
+               "are not PlotItem()'s.\n\n**Notes about the auto-focusing curve: if you connect to the camera in the " \
+               "middle of an auto-focusing process, your curve will only receive and show data from that point on. " \
                "Likewise, if you start another auto-focusing process, the existing auto-focusing curve will be  " \
                "erased, so be sure to export that data beforehand if you require it. The reception of data during " \
                "auto-focusing will be a few seconds slower." 
-        instructions.setFont(QFont("Helvetica", 9, QFont.Light))
+        instructions.setFont(QFont("Helvetica", 10, QFont.Light))
         instructions.setText(text)
         instructions.setWordWrap(True)
         self.photo_tab.addTab(instructions, "&Instructions")
@@ -652,20 +671,30 @@ class GUI(QDialog):
 
         # place for entering IP address of Star Camera computer
         self.ip_input = QLineEdit()
+        self.port_input = QLineEdit()
         font = self.ip_input.font()
-        font.setPointSize(12)
+        font.setPointSize(10)
         self.ip_input.setFont(font)
+        self.port_input.setFont(font)
         ip_layout = QHBoxLayout()
-        ip_sublayout = QFormLayout()
+        ip_sublayout = QHBoxLayout()
         ip_label = QLabel()
-        ip_label.setFont(QFont('Helvetica', 12, QFont.DemiBold))
+        ip_label.setFont(QFont("Helvetica", 10, QFont.DemiBold))
         ip_label.setText("Enter the Star Camera IP address:")
-        ip_sublayout.addRow(ip_label, self.ip_input)
+        id_label = QLabel()
+        id_label.setFont(QFont("Helvetica", 10, QFont.DemiBold))
+        id_label.setText("Enter the server port of the camera to connect to:")
+        ip_sublayout.addWidget(ip_label)
+        ip_sublayout.addWidget(self.ip_input)
+        spacer = QSpacerItem(40, 20, QSizePolicy.Preferred, QSizePolicy.Expanding)
+        ip_sublayout.addItem(spacer)
+        ip_sublayout.addWidget(id_label)
+        ip_sublayout.addWidget(self.port_input)
         ip_layout.addLayout(ip_sublayout)
         self.ip_button = QPushButton("Start")
         self.ip_button.clicked.connect(self.startButtonClicked)
         self.ip_button.setDefault(True)
-        self.ip_button.setFont(QFont('Helvetica', 12, QFont.DemiBold))
+        self.ip_button.setFont(QFont("Helvetica", 10, QFont.DemiBold))
         ip_layout.addWidget(self.ip_button)
 
         # add style customization widgets to this top layout
@@ -857,13 +886,13 @@ class GUI(QDialog):
     Outputs: None.
     """
     def startButtonClicked(self):
-        self.ip_input.text()
         try:
             ipaddress.ip_address(self.ip_input.text())
             # after IP address is entered and 'start' button is clicked, 
             # establish socket with the StarCamera
             try:
-                self.socket_package = listening_final.establishStarCamSocket(self.ip_input.text())
+                self.socket_package = listening_final.establishStarCamSocket(self.ip_input.text(), 
+                                                                             int(self.port_input.text()))
                 self.main_socket = self.socket_package[0]
                 self.StarCam_IP = self.socket_package[1]
                 self.StarCam_PORT = self.socket_package[2]
@@ -880,8 +909,8 @@ class GUI(QDialog):
                 msg.setWindowTitle("Star Camera")
                 msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
                 msg.setIcon(QMessageBox.Critical)
-                msg.setText("Could not establish a connection with Star Camera based on this IP address. Please " \
-                            "enter another or make sure the camera is on and running.")
+                msg.setText("Could not establish a connection with Star Camera based on this IP address or port. " \
+                            "Please enter another or make sure the camera is on and running.")
                 msg.setStandardButtons(QMessageBox.Ok)
                 msg.exec_()
         except ValueError:
@@ -889,7 +918,7 @@ class GUI(QDialog):
             msg.setWindowTitle("Star Camera")
             msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
             msg.setIcon(QMessageBox.Warning)
-            msg.setText("Invalid IP address. Please enter another.")
+            msg.setText("Invalid IP address or port. Please enter another.")
             msg.setStandardButtons(QMessageBox.Ok)
             msg.exec_()
 
@@ -913,29 +942,33 @@ class GUI(QDialog):
         # unpack the telemetry and camera settings
         unpacked_data = struct.unpack_from("d d d d d d d d d d d d d ii ii ii ii d d ii ii ii ii ii ii ii fi ii", data)
 
-        # telemetry data parsing (always update, no matter what, since user is 
+        # telemetry data parsing (always update for display, no matter what, since user is 
         # not interacting with this panel)
         self.time_box.setText(time.asctime(time.gmtime(unpacked_data[1])))
-        self.time.append(unpacked_data[1])
         self.ra_box.setText(str(unpacked_data[6]))
-        self.ra.append(unpacked_data[6])
         self.dec_box.setText(str(unpacked_data[7]))
-        self.dec.append(unpacked_data[7])
         self.fr_box.setText(str(unpacked_data[8]))
-        self.fr.append(unpacked_data[8])
         self.az_box.setText(str(unpacked_data[12]))
-        self.az.append(unpacked_data[12])
         self.alt_box.setText(str(unpacked_data[11]))
-        self.alt.append(unpacked_data[11])
         self.ir_box.setText(str(unpacked_data[10]))
-        self.ir.append(unpacked_data[10])
         self.ps_box.setText(str(unpacked_data[9]))
-        self.ps.append(unpacked_data[9])
+        self.auto_focus_state = unpacked_data[24]
         # only add to auto-focusing data if we are in an auto-focusing process
         if (unpacked_data[24]) and (self.focus_slider.previous_value != unpacked_data[14]):
-            print("In auto-focusing process, so appending to auto-focus data")
             self.auto_focus.append(unpacked_data[14])
             self.flux.append(unpacked_data[29])
+        # if every single telemetry data point is 0, esp. pixel scale, that is before first solution of the run
+        # (i.e. when camera is running for first time and auto-focusing by default)
+        elif (unpacked_data[6] != 0 and unpacked_data[7] != 0 and unpacked_data[8] != 0 and unpacked_data[9] != 0 and
+              unpacked_data[10] != 0 and unpacked_data[11] != 0 and unpacked_data[12] != 0):
+            self.time.append(unpacked_data[1])
+            self.ra.append(unpacked_data[6])
+            self.dec.append(unpacked_data[7])
+            self.fr.append(unpacked_data[8])
+            self.az.append(unpacked_data[12])
+            self.alt.append(unpacked_data[11])
+            self.ir.append(unpacked_data[10])
+            self.ps.append(unpacked_data[9])
 
         # if newly received logodds value is different from previous value, update logodds field
         # (and do the same for all following fields for camera settings)
@@ -943,7 +976,7 @@ class GUI(QDialog):
             self.logodds.setText("{:.2e}".format(unpacked_data[2]))
             self.prev_logodds = unpacked_data[2]
 
-        if (self.latitude_box_prev_value != np.degrees(unpacked_data[3])):
+        if (self.latitude_box_prev_value != unpacked_data[3]):
             self.latitude_box.setText(str(unpacked_data[3]))
             self.latitude_box_prev_value = unpacked_data[3]
 
@@ -967,8 +1000,8 @@ class GUI(QDialog):
         # display new focus information on commanding window
         self.focus_slider.setMinimum(unpacked_data[18])
         self.focus_slider.setMaximum(unpacked_data[19])
-        self.start_focus_pos.setRange(unpacked_data[18], unpacked_data[19] - 20)
-        self.end_focus_pos.setRange(unpacked_data[18], unpacked_data[19] - 20)
+        self.start_focus_pos.setRange(unpacked_data[18] + 25, unpacked_data[19] - 25)
+        self.end_focus_pos.setRange(unpacked_data[18] + 25, unpacked_data[19] - 25)
 
         if (self.focus_slider.previous_value != unpacked_data[14]):
             self.focus_slider.setValue(unpacked_data[14])
@@ -1092,9 +1125,8 @@ class GUI(QDialog):
     Outputs: None.
     """
     def updatePlotData(self):
-        if (not self.auto_focus_box.isChecked()) and (self.prev_time != self.time[-1]):
+        if (not self.auto_focus_state):
             print("New data points, so updating graphs...")
-            self.prev_time = self.time[-1]
             # update each telemetry plot with new time and respective data points (if not auto-focusing)
             self.altitude_line.setData(self.time, self.alt) 
             self.azimuth_line.setData(self.time, self.az)
@@ -1103,7 +1135,7 @@ class GUI(QDialog):
             self.fr_line.setData(self.time, self.fr)
             self.ps_line.setData(self.time, self.ps)
             self.ir_line.setData(self.time, self.ir)
-        elif (self.auto_focus_box.isChecked()):
+        else:
             self.af_line.setData(self.auto_focus, self.flux)
 
     """ 
@@ -1122,7 +1154,7 @@ class GUI(QDialog):
             msg.exec_()
         else:
             degree = self.getDegree()
-            # if user pressed cancelS
+            # if user pressed cancel
             if not degree:
                 return
             elif len(self.flux) < degree + 1:
@@ -1174,40 +1206,73 @@ class GUI(QDialog):
     Outputs: None. Displays a pop-up window.
     """
     def displayWarning(self, command_name, command_value):
-        msg = QMessageBox()
-        msg.setWindowTitle("Star Camera")
-        msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
-        msg.setStandardButtons(QMessageBox.Ok)
         if command_name == "logodds":
-            msg.setIcon(QMessageBox.Warning)
-            msg.setText("Your desired logodds value is out of the range 1e6 to 1e9, the recommended range for " \
-                        "prompt solution times and protection from false positives.")
-        elif command_name == "latitude":
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Invalid latitude.")
-        elif command_name == "longitude":
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText("Invalid longitude.")
-        elif command_name == "height":
-            msg.setIcon(QMessageBox.Warning)
+            msg = QMessageBox()
+            text = "Your desired logodds value is out of the range 1e6 to 1e9, the recommended range for " \
+                   "prompt solution times and protection from false positives. Would you like to proceed with this " \
+                   "command?"
+            reply = msg.question(self, "Confirm Commands", text, QMessageBox.Yes, QMessageBox.No)
+
+            if reply == QMessageBox.Yes:
+                return 1
+            else:
+                return 0
+        
+        if command_name == "latitude":
+            QMessageBox().critical(self, "Command Error", "Invalid latitude", QMessageBox.Ok)
+        
+        if command_name == "longitude":
+            QMessageBox().critical(self, "Command Error", "Invalid longitude", QMessageBox.Ok)
+        
+        if command_name == "height":
             if command_value > 8850:
-                msg.setText("You're above the highest point on Earth! Get down from there!")
+                msg = "You're above the highest point on Earth! Get down from there!"
+                QMessageBox().critical(self, "Command Error", msg, QMessageBox.Ok)
             elif command_value < -10000:
-                msg.setText("You're near the lowest point on Earth!")
-        elif command_name == "exposure":
-            msg.setIcon(QMessageBox.Warning)
-            msg.setText("An exposure beyond 1000 milliseconds may lead to star smearing in the image.")
-        elif command_name == "focus_range":
-            msg.setIcon(QMessageBox.Warning)
-            msg.setText("Based on the start and stop focus positions you specified, the auto-focusing will only " \
-                        "check one focus position.")
-        elif command_name == "auto-focusing":
-            msg.setIcon(QMessageBox.Warning)
-            msg.setText("The distance between your specified start position and end position for auto-focusing is " \
-                        "not divisible by your step size. The camera will increment by your step size until the " \
-                        "difference between its current position and the end focus position is less than your step " \
-                        "size, in which case it will jump automatically to the end position.")
-        msg.exec_()
+                msg = "You're near the lowest point on Earth!"
+                QMessageBox().critical(self, "Command Error", msg, QMessageBox.Ok)
+        
+        if command_name == "exposure":
+            msg = "An exposure beyond 1000 milliseconds may lead to star smearing in the image. "\
+                  "Would you like to proceed with this command?"
+            reply = QMessageBox().question(self, "Confirm Commands", msg, QMessageBox.Yes, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                return 1
+            else:
+                return 0
+        
+        if command_name == "focus_range":
+            msg = "Based on the start and stop focus positions you specified, the auto-focusing will only " \
+                  "check one focus position. Would you like to continue?"
+            reply = QMessageBox().question(self, "Confirm Commands", msg, QMessageBox.Yes, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                return 1
+            else:
+                return 0
+        
+        if command_name == "auto-focusing":
+            msg = "The distance between your specified start position and end position for auto-focusing is " \
+                  "not divisible by your step size. The camera will increment by your step size until the " \
+                  "difference between its current position and the end focus position is less than your step " \
+                  "size, in which case it will jump automatically to the end position. Continue?"
+            reply = QMessageBox().question(self, "Confirm Commands", msg, QMessageBox.Yes, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                return 1
+            else:
+                return 0
+        
+        if command_name == "end_focus":
+            msg = "Your end focus position is less than your start focus position. Re-enter your commands."
+            QMessageBox().critical(self, "Command Error", msg, QMessageBox.Ok)
+        
+        if command_name == "r_smooth":
+            msg = "Your boxcar image filter radius is greater than your high pass filter radius. Proceed with " \
+                  "this command?"
+            reply = QMessageBox().question(self, "Command Error", msg, QMessageBox.Yes, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                return 1
+            else:
+                return 0
 
     """ 
     Package the commands when the 'Send Commands' button is clicked on the GUI.
@@ -1229,29 +1294,38 @@ class GUI(QDialog):
         # logodds parameter
         logodds = float(self.logodds.text())
         if (logodds > 10**9) or (logodds < 10**6):
-            self.displayWarning("logodds", logodds)
+            still_send = self.displayWarning("logodds", logodds)
+            if not still_send:
+                self.logodds.setText("{:.2e}".format(self.prev_logodds))
+                return
 
         # latitude (deg) and longitude (deg)
         latitude = float(self.latitude_box.text())
         if (latitude > 90) or (latitude < -90):
             self.displayWarning("latitude", latitude)
+            self.latitude_box.setText(str(self.latitude_box_prev_value))
             return
 
         longitude = float(self.longitude_box.text())
         if (longitude > 180) or (longitude < -180):
             self.displayWarning("longitude", longitude)
+            self.longitude_box.setText(str(self.longitude_box_prev_value))
             return
 
         # height above WGS84 ellipsoid
         height = float(self.height_box.text())
         if (height > 8850) or (height < -10000):
             self.displayWarning("height", height)
+            self.height_box.setText(str(self.height_box_prev_value))
             return
 
         # exposure parameter
         exposure = float(self.exposure_box.text())
         if exposure > 1000:
-            self.displayWarning("exposure", exposure)
+            still_send = self.displayWarning("exposure", exposure)
+            if not still_send:
+                self.exposure_box.setText(str(self.exposure_box_prev_value))
+                return
 
         # Astrometry solving timeout
         timelimit = int(self.timelimit.value())
@@ -1267,11 +1341,27 @@ class GUI(QDialog):
         start_focus = int(self.start_focus_pos.value())
         end_focus = int(self.end_focus_pos.value())
         if start_focus == end_focus:
-            self.displayWarning("focus_range", 0)
+            still_send = self.displayWarning("focus_range", 0)
+            if not still_send:
+                self.start_focus_pos.setValue(self.prev_start_focus)
+                self.end_focus_pos.setValue(self.prev_end_focus)
+                self.focus_step.setValue(self.prev_focus_step)
+                return
+        elif end_focus < start_focus:
+            self.displayWarning("end_focus", 0)
+            self.start_focus_pos.setValue(self.prev_start_focus)
+            self.end_focus_pos.setValue(self.prev_end_focus)
+            self.focus_step.setValue(self.prev_focus_step)
+            return
 
         step_size = int(self.focus_step.value())
         if ((end_focus - start_focus) % step_size != 0) and auto_focus_bool:
-            self.displayWarning("auto-focusing", step_size)
+            still_send = self.displayWarning("auto-focusing", step_size)
+            if not still_send:
+                self.start_focus_pos.setValue(self.prev_start_focus)
+                self.end_focus_pos.setValue(self.prev_end_focus)
+                self.focus_step.setValue(self.prev_focus_step)
+                return
 
         photos_per_focus = int(self.photos_per_focus.value())
 
@@ -1331,6 +1421,14 @@ class GUI(QDialog):
             r_high_pass_filter_value = float(self.new_r_high_pass_filter.text())
         else:
             r_high_pass_filter_value = -1
+
+        if (high_pass_filter_bool and r_smooth_value > r_high_pass_filter_value):
+            still_send = self.displayWarning("r_smooth", 0)
+            if not still_send:
+                self.new_high_pass_filter.setCurrentText(str(self.prev_high_pass_filter))
+                self.new_r_high_pass_filter.setText(str(self.prev_r_high_pass_filter))
+                self.new_r_smooth.setText(str(self.prev_r_smooth))
+                return
         
         if self.new_centroid_search_border.text() != "":
             centroid_search_border_value = float(self.new_centroid_search_border.text())
@@ -1366,7 +1464,6 @@ class GUI(QDialog):
 
         # if this is the first iteration of the new auto-focusing process
         if (auto_focus_bool):
-            print("Emptying old auto-focusing data")
             self.auto_focus = []
             self.flux = []
             self.coefficients = []
@@ -1386,6 +1483,7 @@ class GUI(QDialog):
         print("Pausing reception of Star Camera data")
         self.GUItelemetry.requestInterruption()
         self.ip_button.setEnabled(True)
+        self.main_socket.close()
         msg = QMessageBox()
         msg.setWindowTitle("Star Camera")
         msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
@@ -1393,6 +1491,24 @@ class GUI(QDialog):
         msg.setIcon(QMessageBox.Information)
         msg.setText("Pausing telemetry reception. Press the start button in the upper righthand corner to resume.")
         msg.exec_()
+
+    """
+    Reset the IP address entry field for the Star Camera so user can re-connect.
+    """
+    def resetConnection(self):
+        msg = QMessageBox()
+        msg.setWindowTitle("Star Camera")
+        msg.setWindowIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"))
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.setIcon(QMessageBox.Warning)
+        msg.setText("Camera is disconnected. IP address input will open in a few seconds.")
+        msg.exec_()
+        self.main_socket.shutdown(socket.SHUT_RDWR)
+        self.main_socket.close()
+        time.sleep(3)
+        self.ip_input.setText("")
+        self.port_input.setText("")
+        self.ip_button.setEnabled(True)
 
     """
     Override the closeEvent() method of the GUI window, built on the QDialog class.
