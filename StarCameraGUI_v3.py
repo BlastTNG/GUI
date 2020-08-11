@@ -1340,19 +1340,20 @@ class GUI(QDialog):
 
         start_focus = int(self.start_focus_pos.value())
         end_focus = int(self.end_focus_pos.value())
-        if start_focus == end_focus:
-            still_send = self.displayWarning("focus_range", 0)
-            if not still_send:
+        if auto_focus_bool:
+            if start_focus == end_focus:
+                still_send = self.displayWarning("focus_range", 0)
+                if not still_send:
+                    self.start_focus_pos.setValue(self.prev_start_focus)
+                    self.end_focus_pos.setValue(self.prev_end_focus)
+                    self.focus_step.setValue(self.prev_focus_step)
+                    return
+            elif end_focus < start_focus:
+                self.displayWarning("end_focus", 0)
                 self.start_focus_pos.setValue(self.prev_start_focus)
                 self.end_focus_pos.setValue(self.prev_end_focus)
                 self.focus_step.setValue(self.prev_focus_step)
                 return
-        elif end_focus < start_focus:
-            self.displayWarning("end_focus", 0)
-            self.start_focus_pos.setValue(self.prev_start_focus)
-            self.end_focus_pos.setValue(self.prev_end_focus)
-            self.focus_step.setValue(self.prev_focus_step)
-            return
 
         step_size = int(self.focus_step.value())
         if ((end_focus - start_focus) % step_size != 0) and auto_focus_bool:
@@ -1527,5 +1528,12 @@ class GUI(QDialog):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     gallery = GUI()
+
+    tray_icon = QSystemTrayIcon(QIcon(script_dir + os.path.sep + "SO_icon.png"), app)
+    tray_icon.show()
+    menu = QMenu()
+    exit_action = menu.addAction("Exit")
+
+    tray_icon.setContextMenu(menu)
     gallery.show()
     sys.exit(app.exec_())
